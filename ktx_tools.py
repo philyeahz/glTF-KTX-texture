@@ -531,6 +531,7 @@ def run_toktx(input_path, output_path, options=None):
             - mipmaps: bool
             - astc_block_size: '4x4', '5x5', '6x6', '8x8' (for ASTC)
             - is_normal: True if texture is normal map (linear)
+            - resize: Resize dimensions '{width}x{height}'
 
     Returns:
         tuple: (success: bool, error_message: str or None)
@@ -571,6 +572,11 @@ def run_toktx(input_path, output_path, options=None):
             quality = options.get('quality', 128)
             cmd.extend(['--qlevel', str(quality)])
     
+    # Downsampling
+    resize = options.get('resize', None)
+    if resize:
+        cmd.extend(['--resize', resize])
+
     # Normal
     if options.get('is_normal', False):
         cmd.extend(['--target_type', 'RG'])

@@ -178,6 +178,14 @@ class KTX2ExportProperties(bpy.types.PropertyGroup):
         default=128
     )
 
+    downsample_factor: bpy.props.IntProperty(
+        name="Downsample Factor",
+        description="Downsample factor: 1-4 (1 = native)",
+        min=1,
+        max=4,
+        default=1
+    )
+
     target_format_normal: bpy.props.EnumProperty(
         name="Target Format",
         description="GPU texture format. Native ASTC loads directly, Basis Universal transcodes at runtime",
@@ -216,6 +224,14 @@ class KTX2ExportProperties(bpy.types.PropertyGroup):
         min=0,
         max=255,
         default=128
+    )
+
+    downsample_factor_normal: bpy.props.IntProperty(
+        name="Downsample Factor",
+        description="Downsample factor: 1-4 (1 = native)",
+        min=1,
+        max=4,
+        default=1
     )
 
     create_fallback: bpy.props.BoolProperty(
@@ -307,6 +323,8 @@ def draw_export(context, layout):
                 elif props.target_format == 'ASTC':
                     general_body.prop(props, 'astc_block_size')
 
+                general_body.prop(props, 'downsample_factor')
+
             normal_header, normal_body = body.panel("GLTF_addon_ktx2_exporter_normal",  default_closed=False)
             normal_header.label(text="Format (Normal)")
             if normal_body:
@@ -322,6 +340,8 @@ def draw_export(context, layout):
                         normal_body.prop(props, 'quality_level_normal', text="Quality (1-255)")
                 elif props.target_format_normal == 'ASTC':
                     normal_body.prop(props, 'astc_block_size_normal')
+
+                normal_body.prop(props, 'downsample_factor_normal')
 
             body.prop(props, 'generate_mipmaps')
             body.prop(props, 'create_fallback')
@@ -372,14 +392,22 @@ class glTF2ExportUserExtension:
 
         # Get texture info
         is_normal = False
+        dim = None
         for wrapper in blender_shader_sockets:
             socket = wrapper.socket
             if not socket.links:
                 continue
             node = socket.links[0].from_node
-            if node.type == 'NORMAL_MAP':
+            if node.type == 'TEX_IMAGE' and node.image:
+                dim = node.image.size
+            elif node.type == 'NORMAL_MAP':
                 is_normal = True
-                
+                color_input = node.inputs.get("Color")
+                if color_input and color_input.links:
+                    image_node = color_input.links[0].from_node
+                    if image_node.type == 'TEX_IMAGE' and image_node.image:
+                        dim = image_node.image.size
+
         from . import ktx2_encode
 
         # Get the source image
@@ -392,6 +420,11 @@ class glTF2ExportUserExtension:
         else:
             # Encode to KTX2
             if is_normal:
+                downsample_dim = None
+                if self.properties.downsample_factor_normal > 1:
+                    width, height = dim
+                    downsample_dim = (int(width / self.properties.downsample_factor_normal),
+                                    int(height / self.properties.downsample_factor_normal))
                 ktx2_image = ktx2_encode.encode_image_to_ktx2(
                     source_image,
                     self.properties.target_format_normal,
@@ -401,8 +434,14 @@ class glTF2ExportUserExtension:
                     export_settings,
                     astc_block_size=self.properties.astc_block_size_normal,
                     is_normal=True,
+                    dim=downsample_dim
                 )
             else:
+                downsample_dim = None
+                if self.properties.downsample_factor > 1:
+                    width, height = dim
+                    downsample_dim = (int(width / self.properties.downsample_factor),
+                                    int(height / self.properties.downsample_factor))
                 ktx2_image = ktx2_encode.encode_image_to_ktx2(
                     source_image,
                     self.properties.target_format,
@@ -412,6 +451,7 @@ class glTF2ExportUserExtension:
                     export_settings,
                     astc_block_size=self.properties.astc_block_size,
                     is_normal=False,
+                    dim=downsample_dim
                 )
             if ktx2_image is None:
                 export_settings['log'].warning(
